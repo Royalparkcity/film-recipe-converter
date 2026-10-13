@@ -1,0 +1,513 @@
+<title>필름 레시피 변환기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap">
+<style>
+/* 카메라 뒷면 LCD처럼: 어두운 무채색 바탕 위에 사진이 주인공, 설정값은 호박색 HUD 글자로. 넓은 화면은 미리보기|패널 2단, 폰은 한 줄로 쌓고 저장 바를 아래에 고정 */
+:root {
+  --bg: #12110f; --panel: #1b1a17; --raise: #24221e; --line: #34312b;
+  --fg: #ece6db; --muted: #9b9386; --accent: #e9a640; --accent-ink: #1a1306;
+  --ok: #7fbf7a; --bad: #e0705c;
+  --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --r: 10px;
+  color-scheme: dark;
+}
+html, body { background: var(--bg); color: var(--fg); }
+body { font-family: var(--sans); font-size: 14px; line-height: 1.5; }
+.wrap { padding-inline: 16px; padding-block: 14px 120px; max-width: 1400px; margin: 0 auto; display: grid; gap: 14px; }
+header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 20px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.sub { color: var(--muted); font-size: 12.5px; }
+.hud { font-family: var(--mono); font-size: 12px; color: var(--accent); letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+.main { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .main { grid-template-columns: minmax(0, 1fr) 380px; align-items: start; } .side { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); } }
+
+.stage { background: #000; border-radius: var(--r); position: relative; display: grid; place-items: center; min-height: 240px; overflow: hidden; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.stage canvas { display: block; max-width: 100%; max-height: min(68vh, 900px); width: auto; height: auto; }
+.stage .tag { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,.6); color: var(--fg); padding: 3px 8px; border-radius: 6px; font-size: 12px; }
+.stage .tag.orig { color: var(--accent); }
+.stage .hint { position: absolute; right: 10px; bottom: 10px; background: rgba(0,0,0,.55); color: #d8d2c8; padding: 3px 8px; border-radius: 6px; font-size: 11.5px; }
+.stage .busy { position: absolute; right: 10px; top: 10px; }
+
+.strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; align-items: center; }
+.strip .ph { flex: 0 0 auto; width: 64px; height: 64px; border-radius: 8px; border: 2px solid transparent; background: var(--raise) center/cover no-repeat; position: relative; cursor: pointer; padding: 0; }
+.strip .ph.on { border-color: var(--accent); }
+.strip .ph .st { position: absolute; right: 3px; bottom: 3px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); border: 2px solid #000; }
+.strip .ph .st.done { background: var(--ok); } .strip .ph .st.err { background: var(--bad); } .strip .ph .st.run { background: var(--accent); }
+.strip .ph .x { position: absolute; top: -2px; right: -2px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: rgba(0,0,0,.75); color: var(--fg); font-size: 13px; line-height: 20px; cursor: pointer; padding: 0; }
+.add { flex: 0 0 auto; height: 64px; padding: 0 14px; border-radius: 8px; border: 1.5px dashed var(--line); background: transparent; color: var(--fg); cursor: pointer; font: inherit; display: grid; place-items: center; line-height: 1.25; text-align: center; }
+.add small { color: var(--muted); font-size: 11px; }
+.drop-on .stage { outline: 2px dashed var(--accent); outline-offset: 3px; }
+
+.side { display: grid; gap: 12px; min-width: 0; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; display: grid; gap: 10px; min-width: 0; }
+.label { font-size: 11.5px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.chip { flex: 0 0 auto; font: inherit; font-size: 12.5px; background: var(--raise); color: var(--fg); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; cursor: pointer; white-space: nowrap; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 500; }
+.recipes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; max-height: 46vh; overflow-y: auto; padding: 2px; }
+@media (max-width: 899px) { .recipes { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 96px; max-height: none; overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; } }
+.rc { font: inherit; background: none; border: 0; padding: 0; color: var(--fg); cursor: pointer; text-align: left; display: grid; gap: 4px; min-width: 0; }
+.rc canvas { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 7px; background: var(--raise); border: 2px solid transparent; display: block; }
+.rc[aria-pressed="true"] canvas { border-color: var(--accent); }
+.rc span { font-size: 11.5px; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.rc[aria-pressed="true"] span { color: var(--accent); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.now { display: grid; gap: 2px; }
+.now b { font-size: 16px; font-weight: 700; }
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.row label { color: var(--muted); font-size: 12.5px; }
+input[type=range] { flex: 1 1 140px; accent-color: var(--accent); min-width: 0; }
+select { font: inherit; background: var(--raise); color: var(--fg); border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; }
+.val { font-family: var(--mono); font-size: 12.5px; min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+
+.bar { position: fixed; left: 0; right: 0; bottom: 0; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); border-top: 1px solid var(--line); padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); z-index: 5; }
+.bar .in { max-width: 1400px; margin: 0 auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.bar .msg { flex: 1 1 200px; min-width: 0; font-size: 13px; color: var(--muted); }
+.bar .msg b { color: var(--fg); font-weight: 500; }
+.btn { font: inherit; font-weight: 500; border-radius: 8px; padding: 9px 16px; cursor: pointer; border: 1px solid var(--line); background: var(--raise); color: var(--fg); }
+.btn.go { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.prog { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+.prog i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.note { color: var(--muted); font-size: 12px; line-height: 1.55; }
+.note a { color: var(--accent); }
+.err { color: var(--bad); font-size: 12.5px; }
+@media (prefers-reduced-motion: reduce) { .prog i { transition: none; } }
+</style>
+
+<div class="wrap" id="app">
+  <header>
+    <h1>필름 레시피 변환기</h1>
+    <span class="sub">Recipe Lab 레시피 77개를 사진에 입혀요. 사진은 이 기기 밖으로 나가지 않아요.</span>
+  </header>
+
+  <div class="main">
+    <section style="display:grid;gap:10px;min-width:0">
+      <div class="stage" id="stage" aria-label="미리보기. 누르고 있으면 원본">
+        <canvas id="view" width="10" height="10"></canvas>
+        <span class="tag" id="tag">미리보기</span>
+        <span class="hud busy" id="busy" hidden>계산 중…</span>
+        <span class="hint">누르고 있으면 원본</span>
+      </div>
+      <div class="strip" id="strip">
+        <button class="add" id="addBtn" type="button">＋ 사진 추가<br><small>여러 장 · 끌어다 놓기</small></button>
+      </div>
+      <input type="file" id="picker" accept="image/jpeg,image/png,image/webp,image/*" multiple hidden>
+      <div class="err" id="loadErr" hidden></div>
+    </section>
+
+    <aside class="side">
+      <div class="panel">
+        <div class="now">
+          <span class="label">선택한 레시피</span>
+          <b id="rName">—</b>
+          <span class="hud" id="rHud"></span>
+        </div>
+        <div class="row">
+          <label for="strength">강도</label>
+          <input type="range" id="strength" min="0" max="100" step="5" value="80">
+          <span class="val" id="strengthVal">80%</span>
+        </div>
+      </div>
+      <div class="panel">
+        <span class="label">브랜드</span>
+        <div class="chips" id="groups" role="group" aria-label="브랜드"></div>
+        <div class="recipes" id="recipes"></div>
+      </div>
+      <div class="panel">
+        <span class="label">저장 설정</span>
+        <div class="row">
+          <label for="size">크기</label>
+          <select id="size">
+            <option value="0">원본 그대로</option>
+            <option value="4096">긴 변 4096px</option>
+            <option value="2048">긴 변 2048px (공유용)</option>
+          </select>
+          <label for="quality">화질</label>
+          <select id="quality">
+            <option value="0.95">95</option>
+            <option value="0.9">90</option>
+            <option value="0.85">85</option>
+          </select>
+        </div>
+        <p class="note" style="margin:0">JPG로 저장하고 촬영 날짜 같은 EXIF 정보는 원본에서 옮겨 와요. HEIC 사진은 브라우저가 열지 못하니 카메라 설정에서 JPG로 찍거나 변환해서 넣어 주세요. 레시피 출처: <a href="https://github.com/voxivoid/recipe-lab-sony-pmca" target="_blank" rel="noopener">voxivoid/recipe-lab-sony-pmca</a> (MIT). 원래 Sony a6000 설정값을 사진 보정으로 옮긴 근사치예요.</p>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div class="bar">
+  <div class="in">
+    <div class="msg" id="msg"><b>예시 사진</b>이 열려 있어요. 내 사진을 추가하면 한꺼번에 변환할 수 있어요.
+      <div class="prog" id="prog" hidden><i id="progBar"></i></div>
+    </div>
+    <button class="btn go" id="runBtn" type="button" disabled>변환하기</button>
+    <button class="btn" id="saveEach" type="button" hidden>하나씩 저장</button>
+    <button class="btn" id="saveZip" type="button" hidden>ZIP으로 저장</button>
+  </div>
+</div>
+
+<script id="engine-src">/*ENGINE*/</script>
+<script>var RECIPES = /*RECIPES*/;</script>
+<script src="/*JSZIP*/"></script>
+<script>
+(function () {
+  var E = RecipeEngine;
+  var SAMPLE = "/*SAMPLE*/";
+  var GROUP_KO = { "Sony": "소니", "Fuji Sim": "후지 필름시뮬", "Fuji Film": "후지 필름", "Kodak": "코닥", "Cine": "시네마", "Ricoh GR": "리코 GR", "Leica": "라이카", "Hasselblad": "핫셀블라드", "Canon / Nikon": "캐논·니콘", "Pana / Olympus": "파나·올림푸스", "Other Stocks": "기타 필름", "Ilford": "일포드" };
+  var $ = function (id) { return document.getElementById(id); };
+  var store = (function () { try { return window.localStorage; } catch (e) { return null; } })();
+  function remember(k, v) { try { store && store.setItem("rl." + k, v); } catch (e) {} }
+  function recall(k) { try { return store ? store.getItem("rl." + k) : null; } catch (e) { return null; } }
+
+  var byId = {}; RECIPES.forEach(function (r) { byId[r.id] = r; });
+  var groups = []; RECIPES.forEach(function (r) { if (groups.indexOf(r.group) < 0) groups.push(r.group); });
+  var state = {
+    recipe: byId[recall("recipe")] || byId["leica-classic"],
+    group: null, strength: 0.8, files: [], cur: -1, sample: null, showOrig: false
+  };
+  state.group = state.recipe.group;
+  var lutCache = {};
+  function lutFor(r) { return lutCache[r.id] || (lutCache[r.id] = E.buildLut(r, 33)); }
+
+  // ---------- 렌더링(미리보기 해상도)
+  function render(src, r, strength) {
+    var out = new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);
+    var px = out.data;
+    E.applyLut(px, lutFor(r));
+    E.spatial(px, src.width, src.height, 0, src.width, src.height, r);
+    var scale = Math.max(src.width, src.height) / 3000;
+    E.sharpen(px, src.width, src.height, E.sharpAmount(r), 1.2 * Math.max(1, scale));
+    if (strength < 1) for (var i = 0; i < px.length; i += 4) for (var c = 0; c < 3; c++) px[i + c] = src.data[i + c] + (px[i + c] - src.data[i + c]) * strength;
+    return out;
+  }
+
+  function current() { return state.cur >= 0 ? state.files[state.cur] : state.sample; }
+
+  var view = $("view"), vctx = view.getContext("2d");
+  var drawToken = 0;
+  function drawPreview() {
+    var it = current(); if (!it || !it.preview) return;
+    var src = it.preview;
+    if (view.width !== src.width || view.height !== src.height) { view.width = src.width; view.height = src.height; }
+    if (state.showOrig) { vctx.putImageData(src, 0, 0); $("tag").textContent = "원본"; $("tag").className = "tag orig"; return; }
+    var t = ++drawToken; $("busy").hidden = false;
+    setTimeout(function () {
+      if (t !== drawToken) return;
+      vctx.putImageData(render(src, state.recipe, state.strength), 0, 0);
+      $("busy").hidden = true;
+      $("tag").textContent = state.recipe.name + (state.cur < 0 ? " · 예시 사진" : ""); $("tag").className = "tag";
+    }, 10);
+  }
+
+  // ---------- 레시피 브라우저
+  var thumbs = {};
+  function drawGroups() {
+    var box = $("groups"); box.textContent = "";
+    groups.forEach(function (g) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "chip"; b.textContent = GROUP_KO[g] || g;
+      b.setAttribute("aria-pressed", g === state.group ? "true" : "false");
+      b.onclick = function () { state.group = g; drawGroups(); drawRecipes(); };
+      box.appendChild(b);
+    });
+  }
+  var thumbJob = 0;
+  function drawRecipes() {
+    var box = $("recipes"); box.textContent = ""; thumbs = {};
+    var list = RECIPES.filter(function (r) { return r.group === state.group; });
+    list.forEach(function (r) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "rc"; b.title = E.summary(r);
+      b.setAttribute("aria-pressed", r.id === state.recipe.id ? "true" : "false");
+      var c = document.createElement("canvas"); c.width = c.height = 4;
+      var s = document.createElement("span"); s.textContent = r.name;
+      b.appendChild(c); b.appendChild(s); box.appendChild(b);
+      b.onclick = function () { pick(r); };
+      thumbs[r.id] = c;
+    });
+    var sel = box.querySelector('[aria-pressed="true"]'); if (sel) { box.scrollLeft = sel.offsetLeft - box.offsetLeft - 8; box.scrollTop = sel.offsetTop - box.offsetTop - 8; }
+    paintThumbs(list);
+  }
+  function paintThumbs(list) {
+    var it = current(); if (!it || !it.thumb) return;
+    var job = ++thumbJob, i = 0;
+    (function step() {
+      if (job !== thumbJob || i >= list.length) return;
+      var r = list[i++], c = thumbs[r.id];
+      if (c) { c.width = it.thumb.width; c.height = it.thumb.height; c.getContext("2d").putImageData(render(it.thumb, r, 1), 0, 0); }
+      setTimeout(step, 0);
+    })();
+  }
+  function pick(r) {
+    state.recipe = r; remember("recipe", r.id);
+    $("rName").textContent = r.name + "  ·  " + (GROUP_KO[r.group] || r.group);
+    $("rHud").textContent = E.summary(r) + (r.note ? "  — " + r.note : "");
+    Array.prototype.forEach.call(document.querySelectorAll(".rc"), function (b) { b.setAttribute("aria-pressed", "false"); });
+    var mine = thumbs[r.id]; if (mine) mine.parentNode.setAttribute("aria-pressed", "true");
+    drawPreview(); resetResults();
+  }
+
+  // ---------- 사진 불러오기
+  function makeViews(bmp) {
+    var long = Math.max(bmp.width, bmp.height);
+    function grab(maxEdge, square) {
+      var k = Math.min(1, maxEdge / long), w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
+      var sx = 0, sy = 0, sw = bmp.width, sh = bmp.height;
+      if (square) { var m = Math.min(bmp.width, bmp.height); sx = (bmp.width - m) / 2; sy = (bmp.height - m) / 2; sw = sh = m; w = h = maxEdge; }
+      var c = document.createElement("canvas"); c.width = w; c.height = h;
+      var x = c.getContext("2d"); x.imageSmoothingQuality = "high"; x.drawImage(bmp, sx, sy, sw, sh, 0, 0, w, h);
+      return { data: x.getImageData(0, 0, w, h), url: square ? c.toDataURL("image/jpeg", 0.7) : null };
+    }
+    var p = grab(Math.min(1400, long), false), t = grab(160, true);
+    return { preview: p.data, thumb: t.data, icon: t.url, w: bmp.width, h: bmp.height };
+  }
+  function addFiles(list) {
+    var arr = Array.prototype.filter.call(list, function (f) { return /^image\//.test(f.type) || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name); });
+    if (!arr.length) return;
+    $("loadErr").hidden = true;
+    var bad = [];
+    var chain = Promise.resolve();
+    arr.forEach(function (f) {
+      chain = chain.then(function () {
+        return createImageBitmap(f, { imageOrientation: "from-image" }).then(function (bmp) {
+          var v = makeViews(bmp); bmp.close();
+          var it = { id: Math.random().toString(36).slice(2), file: f, name: f.name, preview: v.preview, thumb: v.thumb, icon: v.icon, w: v.w, h: v.h, status: "wait", blob: null };
+          state.files.push(it);
+          if (state.cur < 0) { state.cur = 0; drawPreview(); drawRecipes(); }
+          drawStrip(); updateBar();
+        }).catch(function () { bad.push(f.name); });
+      });
+    });
+    chain.then(function () {
+      if (bad.length) { $("loadErr").textContent = "열 수 없는 사진이 있어요: " + bad.join(", ") + ". HEIC라면 JPG로 바꿔서 넣어 주세요."; $("loadErr").hidden = false; }
+    });
+  }
+  function drawStrip() {
+    var box = $("strip");
+    Array.prototype.slice.call(box.querySelectorAll(".ph")).forEach(function (n) { n.remove(); });
+    state.files.forEach(function (it, i) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "ph" + (i === state.cur ? " on" : ""); b.style.backgroundImage = "url(" + it.icon + ")";
+      b.title = it.name + " (" + it.w + "×" + it.h + ")"; b.setAttribute("aria-label", it.name);
+      var st = document.createElement("i"); st.className = "st " + ({ wait: "", run: "run", done: "done", err: "err" }[it.status]); b.appendChild(st);
+      var x = document.createElement("span"); x.className = "x"; x.textContent = "×"; x.setAttribute("role", "button"); x.setAttribute("aria-label", it.name + " 빼기");
+      x.onclick = function (ev) { ev.stopPropagation(); if (busy) return; state.files.splice(i, 1); if (state.cur >= state.files.length) state.cur = state.files.length - 1; drawStrip(); drawPreview(); drawRecipes(); updateBar(); };
+      b.appendChild(x);
+      b.onclick = function () { state.cur = i; drawStrip(); drawPreview(); drawRecipes(); };
+      box.insertBefore(b, $("addBtn"));
+    });
+  }
+
+  // ---------- 원본 비교(누르고 있기)
+  var stage = $("stage");
+  function hold(on) { if (state.showOrig === on) return; state.showOrig = on; drawPreview(); }
+  stage.addEventListener("pointerdown", function (e) { if (e.button === 0) hold(true); });
+  ["pointerup", "pointerleave", "pointercancel"].forEach(function (n) { stage.addEventListener(n, function () { hold(false); }); });
+  stage.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+  // ---------- 끌어다 놓기, 고르기
+  $("addBtn").onclick = function () { $("picker").click(); };
+  $("picker").onchange = function () { addFiles(this.files); this.value = ""; };
+  var app = $("app");
+  ["dragenter", "dragover"].forEach(function (n) { window.addEventListener(n, function (e) { e.preventDefault(); app.classList.add("drop-on"); }); });
+  ["dragleave", "drop"].forEach(function (n) { window.addEventListener(n, function (e) { e.preventDefault(); if (n === "drop" || e.target === document.documentElement) app.classList.remove("drop-on"); }); });
+  window.addEventListener("drop", function (e) { if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files); });
+
+  $("strength").oninput = function () { state.strength = this.value / 100; $("strengthVal").textContent = this.value + "%"; remember("strength", this.value); drawPreview(); resetResults(); };
+
+  // ---------- 전체 해상도 변환(Web Worker)
+  var workerSrc = $("engine-src").textContent + "\n" + "(" + function () {
+    var E = RecipeEngine;
+    self.onmessage = async function (ev) {
+      var m = ev.data;
+      try {
+        var bmp = await createImageBitmap(m.file, { imageOrientation: "from-image" });
+        var W = bmp.width, H = bmp.height, long = Math.max(W, H);
+        if (m.maxEdge && long > m.maxEdge) { var k = m.maxEdge / long; W = Math.round(W * k); H = Math.round(H * k); }
+        var cv = new OffscreenCanvas(W, H), ctx = cv.getContext("2d", { willReadFrequently: true });
+        ctx.imageSmoothingQuality = "high"; ctx.drawImage(bmp, 0, 0, W, H); bmp.close();
+        var lut = E.buildLut(m.recipe, 48), amt = E.sharpAmount(m.recipe);
+        var radius = 1.2 * Math.max(1, Math.max(W, H) / 3000);
+        var pad = Math.abs(amt) > 0.01 ? Math.max(1, Math.round(radius * 0.8)) * 6 + 2 : 0;
+        var step = Math.max(32, Math.floor(3000000 / W)), prev = null, prevY = 0;
+        for (var y0 = 0; y0 < H; y0 += step) {
+          var rows = Math.min(step, H - y0), top = Math.max(0, y0 - pad), bot = Math.min(H, y0 + rows + pad);
+          var reg = ctx.getImageData(0, top, W, bot - top), px = reg.data;
+          var off = (y0 - top) * W * 4, len = rows * W * 4;
+          var orig = m.strength < 1 ? px.slice(off, off + len) : null;
+          E.applyLut(px, lut);
+          E.spatial(px, W, bot - top, top, W, H, m.recipe);
+          E.sharpen(px, W, bot - top, amt, radius);
+          var core = new ImageData(new Uint8ClampedArray(px.buffer, off, len).slice(), W, rows);
+          if (orig) { var d = core.data, s = m.strength; for (var i = 0; i < len; i += 4) { d[i] = orig[i] + (d[i] - orig[i]) * s; d[i + 1] = orig[i + 1] + (d[i + 1] - orig[i + 1]) * s; d[i + 2] = orig[i + 2] + (d[i + 2] - orig[i + 2]) * s; } }
+          if (prev) ctx.putImageData(prev, 0, prevY);
+          prev = core; prevY = y0;
+          self.postMessage({ progress: Math.min(0.95, (y0 + rows) / H) });
+        }
+        if (prev) ctx.putImageData(prev, 0, prevY);
+        var blob = await cv.convertToBlob({ type: "image/jpeg", quality: m.quality });
+        self.postMessage({ done: blob, w: W, h: H });
+      } catch (e) { self.postMessage({ error: String(e && e.message || e) }); }
+    };
+  } + ")();";
+  var worker = null;
+  function getWorker() { return worker || (worker = new Worker(URL.createObjectURL(new Blob([workerSrc], { type: "text/javascript" })))); }
+  function convertOne(it, opts, onProgress) {
+    return new Promise(function (res, rej) {
+      var w = getWorker();
+      w.onmessage = function (ev) {
+        var m = ev.data;
+        if (m.progress != null) onProgress(m.progress);
+        else if (m.error) rej(new Error(m.error));
+        else if (m.done) res(m.done);
+      };
+      w.postMessage({ file: it.file, recipe: state.recipe, strength: state.strength, maxEdge: opts.maxEdge, quality: opts.quality });
+    });
+  }
+
+  // ---------- EXIF 옮기기 (회전값은 이미 반영했으니 1로)
+  function withExif(srcFile, outBlob) {
+    if (!/jpe?g$/i.test(srcFile.type) && !/\.jpe?g$/i.test(srcFile.name)) return Promise.resolve(outBlob);
+    return Promise.all([srcFile.slice(0, 262144).arrayBuffer(), outBlob.arrayBuffer()]).then(function (bufs) {
+      var a = new DataView(bufs[0]), seg = null, p = 2;
+      if (a.getUint16(0) !== 0xFFD8) return outBlob;
+      while (p + 4 <= a.byteLength) {
+        var mk = a.getUint16(p), ln = a.getUint16(p + 2);
+        if (mk === 0xFFDA || (mk & 0xFF00) !== 0xFF00) break;
+        if (mk === 0xFFE1 && a.getUint32(p + 4) === 0x45786966) { seg = new Uint8Array(bufs[0].slice(p, p + 2 + ln)); break; }
+        p += 2 + ln;
+      }
+      if (!seg) return outBlob;
+      try {
+        var v = new DataView(seg.buffer), t = 10, le = v.getUint16(t) === 0x4949;
+        var ifd = t + v.getUint32(t + 4, le), n = v.getUint16(ifd, le);
+        for (var i = 0; i < n; i++) { var e = ifd + 2 + i * 12; if (v.getUint16(e, le) === 0x0112) v.setUint16(e + 8, 1, le); }
+      } catch (e) {}
+      var o = new Uint8Array(bufs[1]), q = 2;
+      if (o[2] === 0xFF && o[3] === 0xE0) q = 4 + ((o[4] << 8) | o[5]);
+      return new Blob([o.subarray(0, q), seg, o.subarray(q)], { type: "image/jpeg" });
+    }).catch(function () { return outBlob; });
+  }
+
+  // ---------- 변환 실행과 저장
+  var busy = false;
+  function outName(it) { return it.name.replace(/\.[^.]+$/, "") + "_" + state.recipe.id + ".jpg"; }
+  function updateBar(text) {
+    var n = state.files.length, done = state.files.filter(function (f) { return f.status === "done"; }).length;
+    $("runBtn").disabled = busy || !n;
+    $("runBtn").textContent = n > 1 ? n + "장 변환하기" : "변환하기";
+    $("saveEach").hidden = $("saveZip").hidden = busy || !done;
+    $("saveZip").hidden = $("saveZip").hidden || done < 2;
+    $("saveEach").textContent = done > 1 ? "하나씩 저장" : "저장";
+    if (text) { setMsg(text); return; }
+    if (!n) setMsg("<b>예시 사진</b>이 열려 있어요. 내 사진을 추가하면 한꺼번에 변환할 수 있어요.");
+    else if (done) setMsg("<b>" + done + "장</b> 변환 완료 · " + esc(state.recipe.name));
+    else setMsg("<b>" + n + "장</b> 준비됨 · " + esc(state.recipe.name) + " · 강도 " + Math.round(state.strength * 100) + "%");
+  }
+  function esc(s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+  function setMsg(html) { var p = $("prog"); $("msg").innerHTML = html; $("msg").appendChild(p); }
+  function resetResults() {
+    if (busy) return;
+    state.files.forEach(function (f) { f.status = "wait"; f.blob = null; });
+    drawStrip(); updateBar();
+  }
+
+  $("runBtn").onclick = async function () {
+    if (busy || !state.files.length) return;
+    busy = true;
+    var opts = { maxEdge: +$("size").value, quality: +$("quality").value };
+    var list = state.files.slice(), total = list.length, failed = 0;
+    $("prog").hidden = false;
+    for (var i = 0; i < total; i++) {
+      var it = list[i]; it.status = "run"; drawStrip();
+      updateBar("<b>" + (i + 1) + " / " + total + "</b> 변환 중 · " + esc(it.name));
+      try {
+        var blob = await convertOne(it, opts, function (p) { $("progBar").style.width = ((i + p) / total * 100).toFixed(1) + "%"; });
+        it.blob = await withExif(it.file, blob); it.status = "done";
+      } catch (e) { it.status = "err"; failed++; console.error(e); }
+      drawStrip();
+    }
+    $("progBar").style.width = "100%";
+    busy = false; $("prog").hidden = true;
+    updateBar();
+    if (failed) setMsg($("msg").innerHTML.replace(/<div.*$/, "") + ' · <span class="err">' + failed + "장 실패 (메모리 부족이면 크기를 줄여 보세요)</span>");
+  };
+
+  var dl = null, dlReady = (window.claude && window.claude.use) ? window.claude.use("downloads").then(function (d) { dl = d; }).catch(function () {}) : Promise.resolve();
+  var savedCount = 0;
+  function saveAndroid(name, blob) {
+    var A = window.AndroidBridge, CH = 786432;
+    return blob.arrayBuffer().then(function (buf) {
+      var u8 = new Uint8Array(buf), tok = A.begin(name, /\.zip$/i.test(name) ? "application/zip" : "image/jpeg");
+      if (!tok) throw new Error("저장 공간을 열지 못했어요");
+      for (var o = 0; o < u8.length; o += CH) {
+        var part = u8.subarray(o, Math.min(u8.length, o + CH)), bin = "";
+        for (var j = 0; j < part.length; j += 32768) bin += String.fromCharCode.apply(null, part.subarray(j, j + 32768));
+        if (!A.append(tok, btoa(bin))) throw new Error("쓰는 중에 실패했어요");
+      }
+      var res = A.finish(tok);
+      if (res !== "ok") throw new Error(res);
+      savedCount++;
+      setMsg("<b>" + savedCount + "장</b> 저장했어요 · " + (/\.zip$/i.test(name) ? "다운로드 폴더" : "갤러리의 FilmRecipe 앨범"));
+    });
+  }
+  function saveBlob(name, blob) {
+    if (window.AndroidBridge) return saveAndroid(name, blob);
+    return dlReady.then(function () {
+      if (dl) return dl.save({ filename: name, data: blob });
+      var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 30000);
+    });
+  }
+  $("saveEach").onclick = async function () {
+    savedCount = 0;
+    var done = state.files.filter(function (f) { return f.status === "done"; });
+    for (var i = 0; i < done.length; i++) {
+      try { await saveBlob(outName(done[i]), done[i].blob); }
+      catch (e) { if (e && e.code === "declined") break; if (e && e.code === "rate_limited") { i--; await new Promise(function (r) { setTimeout(r, 1500); }); continue; } setMsg('<span class="err">저장하지 못했어요: ' + esc(e && e.message || String(e)) + "</span>"); break; }
+    }
+  };
+  $("saveZip").onclick = async function () {
+    if (!window.JSZip) { setMsg('<span class="err">ZIP 도구를 불러오지 못했어요. 인터넷 연결을 확인하거나 하나씩 저장해 주세요.</span>'); return; }
+    var zip = new JSZip(), used = {};
+    state.files.forEach(function (f) { if (f.status !== "done") return; var n = outName(f); while (used[n]) n = n.replace(/(\.jpg)$/, "_1$1"); used[n] = 1; zip.file(n, f.blob); });
+    setMsg("ZIP 만드는 중…");
+    var blob = await zip.generateAsync({ type: "blob", compression: "STORE" });
+    try { await saveBlob("recipe_" + state.recipe.id + ".zip", blob); updateBar(); }
+    catch (e) { updateBar(); if (!(e && e.code === "declined")) setMsg('<span class="err">' + (e && e.code === "too_large" ? "ZIP이 너무 커요. 크기를 줄이거나 하나씩 저장해 주세요." : "저장하지 못했어요.") + "</span>"); }
+  };
+
+  // ---------- 시작: 예시 사진
+  var sv = recall("strength"); if (sv) { $("strength").value = sv; state.strength = sv / 100; $("strengthVal").textContent = sv + "%"; }
+  drawGroups();
+  pick(state.recipe);
+  var img = new Image();
+  img.onload = function () {
+    createImageBitmap(img).then(function (bmp) {
+      var v = makeViews(bmp); bmp.close();
+      state.sample = { preview: v.preview, thumb: v.thumb };
+      if (state.cur < 0) { drawPreview(); drawRecipes(); }
+    });
+  };
+  img.src = SAMPLE;
+  // 안드로이드 앱: 갤러리에서 "공유"로 보낸 사진을 받는다
+  function loadShared() {
+    var A = window.AndroidBridge; if (!A || !A.sharedCount) return;
+    var n = A.sharedCount(), jobs = [];
+    for (var i = 0; i < n; i++) (function (i) {
+      jobs.push(fetch("/shared/" + i).then(function (r) { return r.blob(); }).then(function (b) {
+        return new File([b], A.sharedName(i) || ("shared_" + i + ".jpg"), { type: b.type || "image/jpeg" });
+      }));
+    })(i);
+    if (n) Promise.all(jobs).then(function (files) { A.clearShared(); addFiles(files); }).catch(function () { A.clearShared(); });
+  }
+  window.onAndroidShare = loadShared;
+  loadShared();
+  drawRecipes();
+  updateBar();
+})();
+</script>

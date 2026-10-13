@@ -1,0 +1,43 @@
+name: 안드로이드 APK 빌드
+
+on:
+  push:
+    branches: [main]
+    paths: ["android/**", ".github/workflows/android.yml"]
+  pull_request:
+    paths: ["android/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: APK 빌드
+        run: gradle -p android assembleRelease -PversionCode=${{ github.run_number }} --no-daemon
+      - name: 이름 정리
+        run: cp android/app/build/outputs/apk/release/app-release.apk FilmRecipe.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FilmRecipe-apk
+          path: FilmRecipe.apk
+      - name: Releases에 최신 APK 올리기
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete apk-latest --yes --cleanup-tag || true
+          gh release create apk-latest FilmRecipe.apk \
+            --title "안드로이드 앱 1.0.${{ github.run_number }}" \
+            --notes "폰에서 FilmRecipe.apk를 받아 설치하세요. 처음 설치할 때 '출처를 알 수 없는 앱' 설치를 허용해야 합니다." \
+            --latest
