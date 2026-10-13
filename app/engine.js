@@ -230,14 +230,15 @@ var RecipeEngine = (function () {
     return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
   }
 
-  /** 입자(rough-mono)와 비네팅(toy-camera). y0: 전체 이미지에서 이 띠의 시작 행. */
-  function spatial(px, w, rows, y0, fullW, fullH, r) {
+  /** 입자(rough-mono)와 비네팅(toy-camera). x0, y0: 전체 이미지에서 이 조각의 시작 위치. */
+  function spatial(px, w, rows, y0, fullW, fullH, r, x0) {
+    x0 = x0 || 0;
     var pe = r.picture_effect || "off";
     if (pe === "toy-camera") {
       for (var y = 0; y < rows; y++) {
         var yy = (y0 + y - fullH / 2) / (fullH / 2);
         for (var x = 0; x < w; x++) {
-          var xx = (x - fullW / 2) / (fullW / 2), d2 = yy * yy + xx * xx;
+          var xx = (x0 + x - fullW / 2) / (fullW / 2), d2 = yy * yy + xx * xx;
           var f = Math.max(0, 1 - 0.35 * Math.pow(d2, 1.2)), o = (y * w + x) * 4;
           px[o] *= f; px[o + 1] *= f; px[o + 2] *= f;
         }
@@ -247,7 +248,7 @@ var RecipeEngine = (function () {
       for (y = 0; y < rows; y++) {
         var gy = (y0 + y) / cell, iy = Math.floor(gy), ty = gy - iy;
         for (x = 0; x < w; x++) {
-          var gx = x / cell, ix = Math.floor(gx), tx = gx - ix;
+          var gx = (x0 + x) / cell, ix = Math.floor(gx), tx = gx - ix;
           var n = (hash(ix, iy, 7) * (1 - tx) + hash(ix + 1, iy, 7) * tx) * (1 - ty) +
                   (hash(ix, iy + 1, 7) * (1 - tx) + hash(ix + 1, iy + 1, 7) * tx) * ty;
           var add = (n - 0.5) * 2 * 31; // 표준편차 약 18
