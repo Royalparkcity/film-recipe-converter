@@ -1,0 +1,33 @@
+name: LUT 묶음 만들기
+
+on:
+  push:
+    branches: [main]
+    paths: ["app/engine.js", "app/recipes.json", "app/export_luts.js", "app/LUT_README.txt", ".github/workflows/luts.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  luts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: .cube 77개 만들기
+        run: |
+          node app/export_luts.js FilmRecipe_LUTs 33
+          cp app/LUT_README.txt FilmRecipe_LUTs/README.txt
+          zip -qr FilmRecipe_LUTs.zip FilmRecipe_LUTs
+      - name: Releases에 올리기
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete luts-latest --yes --cleanup-tag || true
+          gh release create luts-latest FilmRecipe_LUTs.zip \
+            --title "LUT 77개 (.cube, 프리미어·리졸브용)" \
+            --notes "FilmRecipe_LUTs.zip을 받아 압축을 풀고, 프리미어 프로 Lumetri Color > Creative > Look > Browse에서 .cube 파일을 고르세요. 자세한 내용은 안의 README.txt를 보세요." \
+            --latest=false

@@ -6,6 +6,7 @@ Sony 카메라용 [Recipe Lab](https://github.com/voxivoid/recipe-lab-sony-pmca)
 
 - **웹**: https://royalparkcity.github.io/film-recipe-converter/ (폰 크롬에서 "홈 화면에 추가"하면 앱처럼 설치, 한 번 열면 오프라인 동작)
 - **안드로이드 앱**: [Releases → FilmRecipe.apk](../../releases/latest). 결과는 갤러리의 `Pictures/FilmRecipe`에 저장되고, 갤러리에서 사진을 "공유 → 필름 레시피"로 보내도 열린다.
+- **LUT 77개 (.cube)**: [Releases → FilmRecipe_LUTs.zip](../../releases/tag/luts-latest). 프리미어 프로 Lumetri, 다빈치 리졸브 등에서 사용. 만들기: `node app/export_luts.js`
 - **명령줄(파이썬)**: `python/recipefilter.py` — 폴더 일괄 변환, 비교 시트, .cube LUT 내보내기
 
 ## 레시피는 어떻게 옮겼나
